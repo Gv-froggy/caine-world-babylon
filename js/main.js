@@ -56,100 +56,52 @@ function appliquerCollisionSol(meshCaine, footL, footR, niveauSol) {
 }
 
 // ============================================
-// CHARGEMENT DE CAINE
-// ============================================
-BABYLON.SceneLoader.ImportMesh('', './caine/', 'caine2.glb', scene, (meshes, particleSystems, skeletons) => {
-  const squelette = skeletons[0]
-
-  // Calcule la bounding box réelle de tout le modèle
-  meshes[0].computeWorldMatrix(true)
-  const { min, max } = meshes[0].getHierarchyBoundingVectors()
-  console.log('Bas du modèle (Y) :', min.y)
-  console.log('Haut du modèle (Y) :', max.y)
-
-  // Conteneur stable — toute la logique IA (vision, déplacement, etc.) le manipule
-  const caine = new BABYLON.TransformNode('caine', scene)
-  meshes[0].setParent(caine)
-  meshes[0].position.y = -min.y  // ajustement interne, relatif au conteneur
-  window.caine = caine  // temporaire, pour debug console
-
-  // Pieds — toujours gérés ici pour l'instant (lié au collider + IK_Foot)
-  const footL = squelette.bones.find(b => b.name === 'Foot_L').getTransformNode()
-  const footR = squelette.bones.find(b => b.name === 'Foot_R').getTransformNode()
-
-  const ikFootL = footL.parent  // IK_Foot_L
-  const ikFootR = footR.parent  // IK_Foot_R
-  const reposIkFootL = ikFootL.rotationQuaternion.clone()
-  const reposIkFootR = ikFootR.rotationQuaternion.clone()
-
-  // Corps — délègue toutes les articulations/limites/marche à GestionnaireCorps
-  const corps = new GestionnaireCorps()
-  corps.initialiser(squelette)
-  window.corps = corps  // temporaire, pour debug console
-
-  // Motricité — apprentissage de la marche par essais-erreurs
-  const motricite = new GestionnaireMotricite(corps, caine)
-  window.motricite = motricite  // temporaire, pour debug console
-
-  // Mode de marche pilotable depuis la console (ancien système, gardé pour comparaison) :
-  const etatTest = { modeMarche: 'avant' }
-  window.etatTest = etatTest
-
-  let t = 0
-  let compteurFrames = 0
-
-  scene.registerBeforeRender(() => {
-    t += 0.06
-    compteurFrames++
-
-    // ── Vision — scanne l'environnement ──
-    const perception = scannerEnvironnement(caine)
-    // ── Cône de vision — suit Caine ──
-    coneVision.position.x = caine.position.x
-    coneVision.position.z = caine.position.z
-    coneVision.rotation.y = caine.rotation.y
-    window.derniereScan = perception
-
-    // ── Motricité — décide et exécute un cycle de marche toutes les 30 frames ──
-    //if (compteurFrames % 30 === 0) {
-    //  motricite.executerCycleDeMarche()
-    //}
-
-    // ── Pieds — suivent la jambe via leur propre chaîne IK ──
-    const plieFootL = Math.max(0, -Math.sin(t)) * 0.3
-    const plieFootR = Math.max(0, Math.sin(t)) * 0.3
-    ikFootL.rotationQuaternion = reposIkFootL.multiply(
-      BABYLON.Quaternion.RotationAxis(new BABYLON.Vector3(1, 0, 0), plieFootL)
-    )
-    ikFootR.rotationQuaternion = reposIkFootR.multiply(
-      BABYLON.Quaternion.RotationAxis(new BABYLON.Vector3(1, 0, 0), plieFootR)
-    )
-
-    // ── Collider sol — reste sur le mesh réel, pas le conteneur ──
-    appliquerCollisionSol(caine, footL, footR, 0)
-
-    if (compteurFrames % 30 === 0) {
-      mettreAJourMiniCarte(caine)
-    }
-  })
-})
-
-// ============================================
 // OBJETS ET PILES
 // ============================================
 const DEMI_HAUTEUR_CUBE = 0.25
 const HAUTEUR_MAX_PILE = 5
 const objetsCollidables = []
 const piles = []
+const MAX_OBJETS = 45
+const creations = []
+
+function choisirCouleurAleatoire() {
+  const couleursDisponibles = SHOP_CATALOGUE.couleurs.filter(c =>
+    shop.couleursDebloquees.includes(c.id)
+  )
+  if (couleursDisponibles.length === 0) return new BABYLON.Color3(0.91, 0.3, 0.24)
+  if (Math.random() < 0.6) return new BABYLON.Color3(0.91, 0.3, 0.24)
+  const choix = couleursDisponibles[Math.floor(Math.random() * couleursDisponibles.length)]
+  return choix.valeur
+}
+
+function choisirFormeAleatoire() {
+  const formesDisponibles = SHOP_CATALOGUE.formes.filter(f =>
+    shop.formesDebloquees.includes(f.id)
+  )
+  if (Math.random() < 0.6 || formesDisponibles.length === 0) return 'cube'
+  return formesDisponibles[Math.floor(Math.random() * formesDisponibles.length)].id
+}
+
+function creerGeometrie(forme) {
+  switch(forme) {
+    case 'sphere':   return BABYLON.MeshBuilder.CreateSphere('objet', { diameter: 0.5 }, scene)
+    case 'cylindre': return BABYLON.MeshBuilder.CreateCylinder('objet', { height: 0.5, diameter: 0.5 }, scene)
+    case 'cone':     return BABYLON.MeshBuilder.CreateCylinder('objet', { height: 0.5, diameterTop: 0, diameterBottom: 0.5 }, scene)
+    case 'tore':     return BABYLON.MeshBuilder.CreateTorus('objet', { diameter: 0.4, thickness: 0.15 }, scene)
+    default:         return BABYLON.MeshBuilder.CreateBox('objet', { size: 0.5 }, scene)
+  }
+}
 
 function creerCubeRouge(x, y, z) {
-  const objet = BABYLON.MeshBuilder.CreateBox('cube', { size: 0.5 }, scene)
+  const forme = choisirFormeAleatoire()
+  const objet = creerGeometrie(forme)
   objet.position = new BABYLON.Vector3(x, y, z)
-  const mat = new BABYLON.StandardMaterial('matCube', scene)
-  mat.diffuseColor = new BABYLON.Color3(0.91, 0.3, 0.24)  // rouge, même teinte que l'ancien projet
+  const mat = new BABYLON.StandardMaterial('matObjet', scene)
+  mat.diffuseColor = choisirCouleurAleatoire()
   objet.material = mat
-  objet.rayonCollision = 0.6
-  objet.forme = 'cube'
+  objet.rayonCollision = 0.35
+  objet.forme = forme
   objetsCollidables.push(objet)
   return objet
 }
@@ -159,6 +111,17 @@ function trouverPileProche(x, z, rayon) {
     const dx = pile.x - x
     const dz = pile.z - z
     if (Math.sqrt(dx * dx + dz * dz) < rayon) return pile
+  }
+  return null
+}
+
+function trouverObjetSeulProche(x, z, rayon) {
+  for (const objet of creations) {
+    const dejaDansPile = piles.some(p => p.objets.includes(objet))
+    if (dejaDansPile) continue
+    const dx = objet.position.x - x
+    const dz = objet.position.z - z
+    if (Math.sqrt(dx * dx + dz * dz) < rayon) return objet
   }
   return null
 }
@@ -181,15 +144,49 @@ function poserCubeRouge(x, z) {
     const objet = creerCubeRouge(posX, calculerSommetPile(pileExistante) + DEMI_HAUTEUR_CUBE, posZ)
     pileExistante.objets.push(objet)
     return { objet, empile: true, hauteur: pileExistante.objets.length }
-  } else if (!pileExistante) {
-    const objet = creerCubeRouge(posX, DEMI_HAUTEUR_CUBE, posZ)
-    piles.push({ x: posX, z: posZ, objets: [objet] })
-    return { objet, empile: false, hauteur: 1 }
   }
-  return null
+
+  const objetSeul = trouverObjetSeulProche(posX, posZ, 0.8)
+  if (objetSeul) {
+    const objet = creerCubeRouge(posX, objetSeul.position.y + DEMI_HAUTEUR_CUBE * 2, posZ)
+    piles.push({ x: objetSeul.position.x, z: objetSeul.position.z, objets: [objetSeul, objet] })
+    return { objet, empile: true, hauteur: 2 }
+  }
+
+  const objet = creerCubeRouge(posX, DEMI_HAUTEUR_CUBE, posZ)
+  return { objet, empile: false, hauteur: 1 }
 }
-poserCubeRouge(3, 3)  // test — pose un cube à la position (3, 0, 3)
-window.poserCubeRouge = poserCubeRouge  // pour tester depuis la console
+
+function supprimerObjetProche(caine) {
+  const aPortee = creations.filter(objet => {
+    if (objet.isShopDoor) return false
+    const dx = objet.position.x - caine.position.x
+    const dz = objet.position.z - caine.position.z
+    return Math.sqrt(dx * dx + dz * dz) <= 1.5
+  })
+
+  if (aPortee.length === 0) return false
+
+  const cible = aPortee[Math.floor(Math.random() * aPortee.length)]
+
+  for (const pile of piles) {
+    const idx = pile.objets.indexOf(cible)
+    if (idx > -1) { pile.objets.splice(idx, 1); break }
+  }
+  for (let i = piles.length - 1; i >= 0; i--) {
+    if (piles[i].objets.length === 0) piles.splice(i, 1)
+  }
+
+  const icCreations = creations.indexOf(cible)
+  if (icCreations > -1) creations.splice(icCreations, 1)
+  const icCollidables = objetsCollidables.indexOf(cible)
+  if (icCollidables > -1) objetsCollidables.splice(icCollidables, 1)
+
+  cible.dispose()
+  return true
+}
+
+window.poserCubeRouge = poserCubeRouge
 
 // ============================================
 // CARTE MENTALE
@@ -221,7 +218,86 @@ const carte = {
     }
   }
 }
-window.carte = carte  // temporaire, pour debug console
+window.carte = carte
+
+// ============================================
+// SYSTÈME DE POINTS — DÉPRÉCIATION PROGRESSIVE
+// ============================================
+const pointsSysteme = {
+  total: 0,
+  parType: { poser: 0, empiler: 0, supprimer: 0 },
+  occurrences: { poser: 0, empiler: 0, supprimer: 0 },
+
+  valeurBase: { poser: 1, empiler: 1.5, supprimer: 1 },
+
+  seuil: 25,
+  depreciationMax: 0.45,
+
+  calculerValeur(type, hauteurPile) {
+    const n = this.occurrences[type]
+    const facteurOccurrence = Math.min(n / this.seuil, 1) * this.depreciationMax
+    let valeur = this.valeurBase[type] * (1 - facteurOccurrence)
+    if (type === 'empiler' && hauteurPile >= 3) {
+      const exces = hauteurPile - 2
+      const facteurHauteur = Math.min(exces * 0.25, 0.8)
+      valeur *= (1 - facteurHauteur)
+    }
+    return Math.max(valeur, 0.1)
+  },
+
+  gagner(type, hauteurPile = 0) {
+    const valeur = this.calculerValeur(type, hauteurPile)
+    this.occurrences[type]++
+    this.parType[type] += valeur
+    this.total += valeur
+    return valeur
+  },
+
+  choisir(actions, hauteurPile = 0) {
+    if (Math.random() < 0.2) {
+      return actions[Math.floor(Math.random() * actions.length)]
+    }
+    let meilleure = actions[0]
+    let meilleureValeur = this.calculerValeur(meilleure, hauteurPile)
+    for (const action of actions) {
+      const v = this.calculerValeur(action, hauteurPile)
+      if (v > meilleureValeur) { meilleure = action; meilleureValeur = v }
+    }
+    return meilleure
+  }
+}
+window.pointsSysteme = pointsSysteme
+
+// ============================================
+// INTERFACE — STATS DE CAINE
+// ============================================
+const ui = document.createElement('div')
+ui.style.cssText = `
+  position: fixed; top: 16px; left: 16px;
+  color: #ffffff; font-family: monospace; font-size: 13px;
+  background: rgba(0,0,0,0.6); padding: 14px 18px;
+  border-radius: 10px; border-left: 3px solid #9b59b6;
+  line-height: 1.7; max-width: 260px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+`
+document.body.appendChild(ui)
+
+function mettreAJourUI(caine) {
+  ui.innerHTML = `
+    <b style="color:#9b59b6; font-size:15px">CAINE</b><br>
+    <span style="color:#888">État :</span> ${cerveau.etat}<br>
+    <span style="color:#888">Humeur :</span> ${llm.humeurActuelle}<br>
+    <i style="color:#1abc9c; font-size:12px">"${llm.penseeActuelle}"</i><br>
+    <br>
+    <span style="color:#888">Objets :</span> ${creations.length} / ${MAX_OBJETS}<br>
+    <span style="color:#888">Piles :</span> ${piles.length}<br>
+    <br>
+    <b style="color:#f1c40f">POINTS : ${pointsSysteme.total.toFixed(1)}</b><br>
+    <span style="color:#888">— posé :</span> ${pointsSysteme.parType.poser.toFixed(1)} (${pointsSysteme.occurrences.poser}x)<br>
+    <span style="color:#888">— empilé :</span> ${pointsSysteme.parType.empiler.toFixed(1)} (${pointsSysteme.occurrences.empiler}x)<br>
+    <span style="color:#888">— supprimé :</span> ${pointsSysteme.parType.supprimer.toFixed(1)} (${pointsSysteme.occurrences.supprimer}x)<br>
+  `
+}
 
 // ============================================
 // MINI CARTE 2D
@@ -231,6 +307,7 @@ miniCarte.width = 200
 miniCarte.height = 200
 miniCarte.style.cssText = `
   position: fixed; top: 16px; right: 16px;
+  width: 250px; height: 250px;
   border-radius: 8px; border: 1px solid #9b59b6;
   background: rgba(0,0,0,0.5);
 `
@@ -250,7 +327,7 @@ function mettreAJourMiniCarte(caine) {
   for (const objet of objetsCollidables) {
     const ox = ((objet.position.x + 20) / 40) * 200
     const oz = ((objet.position.z + 20) / 40) * 200
-    ctxCarte.fillStyle = 'rgb(232, 76, 61)'  // rouge, même teinte que les cubes
+    ctxCarte.fillStyle = 'rgb(232, 76, 61)'
     ctxCarte.beginPath()
     ctxCarte.arc(ox, oz, 2, 0, Math.PI * 2)
     ctxCarte.fill()
@@ -313,13 +390,292 @@ function scannerEnvironnement(caine) {
 }
 
 // ============================================
+// COLLISION ET DÉPLACEMENT
+// ============================================
+const RAYON_CAINE = 0.3
+
+function detecterCollision(pos) {
+  for (const objet of objetsCollidables) {
+    const dx = pos.x - objet.position.x
+    const dz = pos.z - objet.position.z
+    if (Math.sqrt(dx * dx + dz * dz) < RAYON_CAINE + objet.rayonCollision) return objet
+  }
+  return null
+}
+
+function deplacerVersDestination(caine, destination, vitesse) {
+  const dx = destination.x - caine.position.x
+  const dz = destination.z - caine.position.z
+  const distanceRestante = Math.sqrt(dx * dx + dz * dz)
+
+  if (distanceRestante > 0.2) {
+    const dirX = dx / distanceRestante
+    const dirZ = dz / distanceRestante
+
+    const prochainX = caine.position.x + dirX * vitesse
+    const prochainZ = caine.position.z + dirZ * vitesse
+
+    const obstacle = detecterCollision({ x: prochainX, z: prochainZ })
+    if (obstacle) {
+      return { arrive: false, bloque: true, obstacle }
+    }
+
+    caine.position.x = prochainX
+    caine.position.z = prochainZ
+    caine.rotation.y = Math.atan2(dirX, dirZ)
+    return { arrive: false, bloque: false }
+  }
+
+  return { arrive: true, bloque: false }
+}
+
+function calculerContournement(caine, obstacle) {
+  const dx = obstacle.position.x - caine.position.x
+  const dz = obstacle.position.z - caine.position.z
+  const distanceObstacle = Math.sqrt(dx * dx + dz * dz)
+
+  const perpX = -dz / distanceObstacle
+  const perpZ = dx / distanceObstacle
+
+  const sens = Math.random() > 0.5 ? 1 : -1
+  const decalage = RAYON_CAINE + obstacle.rayonCollision + 1.0
+
+  return new BABYLON.Vector3(
+    caine.position.x + perpX * decalage * sens,
+    0,
+    caine.position.z + perpZ * decalage * sens
+  )
+}
+
+// ============================================
+// CERVEAU — MACHINE À ÉTATS
+// ============================================
+const ETATS = {
+  CHOISIR: 'choisir',
+  MARCHER: 'marcher',
+  CONTOURNER: 'contourner',
+  EXAMINER: 'examiner',
+  CREER: 'creer',
+  OBSERVER: 'observer'
+}
+
+const cerveau = {
+  etat: ETATS.CHOISIR,
+  destination: new BABYLON.Vector3(0, 0, 0),
+  destinationFinale: new BABYLON.Vector3(0, 0, 0),
+  vitesse: 0.03,
+  tempsAttente: 0,
+  dureeAttente: 0,
+  cible: null,
+  perception: { objet: null, zone: ZONES.HORS_VUE, distance: Infinity },
+  tentativesContournement: 0,
+  maxContournements: 5
+}
+
+function choisirDestination() {
+  let destX, destZ
+  if (Math.random() < 0.7 && objetsCollidables.length > 0) {
+    const dest = carte.meilleureDestination()
+    destX = dest.x + (Math.random() - 0.5) * 4
+    destZ = dest.z + (Math.random() - 0.5) * 4
+  } else {
+    destX = (Math.random() - 0.5) * 30
+    destZ = (Math.random() - 0.5) * 30
+  }
+  cerveau.destination = new BABYLON.Vector3(destX, 0, destZ)
+  cerveau.destinationFinale = new BABYLON.Vector3(destX, 0, destZ)
+  cerveau.cible = null
+  cerveau.tentativesContournement = 0
+  cerveau.etat = ETATS.MARCHER
+}
+
+function mettreAJourCerveau(caine) {
+  cerveau.perception = scannerEnvironnement(caine)
+
+  if (cerveau.etat === ETATS.CHOISIR) {
+    choisirDestination()
+
+  } else if (cerveau.etat === ETATS.MARCHER) {
+    const resultat = deplacerVersDestination(caine, cerveau.destination, cerveau.vitesse)
+    if (resultat.bloque) {
+      cerveau.tentativesContournement++
+      if (cerveau.tentativesContournement >= cerveau.maxContournements) {
+        cerveau.tentativesContournement = 0
+        cerveau.etat = ETATS.CHOISIR
+      } else {
+        cerveau.destination = calculerContournement(caine, resultat.obstacle)
+        cerveau.etat = ETATS.CONTOURNER
+      }
+    } else if (resultat.arrive) {
+      cerveau.tentativesContournement = 0
+      cerveau.etat = ETATS.CREER
+    }
+
+  } else if (cerveau.etat === ETATS.CONTOURNER) {
+    const resultat = deplacerVersDestination(caine, cerveau.destination, cerveau.vitesse)
+    if (resultat.bloque) {
+      cerveau.tentativesContournement++
+      if (cerveau.tentativesContournement >= cerveau.maxContournements) {
+        cerveau.tentativesContournement = 0
+        cerveau.etat = ETATS.CHOISIR
+      } else {
+        cerveau.destination = calculerContournement(caine, resultat.obstacle)
+      }
+    } else if (resultat.arrive) {
+      cerveau.tentativesContournement = 0
+      cerveau.destination = cerveau.destinationFinale
+      cerveau.etat = ETATS.MARCHER
+    }
+
+  } else if (cerveau.etat === ETATS.CREER) {
+    const p = cerveau.perception
+    const objetVuContact = p.objet && p.zone === ZONES.CONTACT && !p.objet.isShopDoor
+
+    if (creations.length >= MAX_OBJETS && objetVuContact && Math.random() < 0.4) {
+      const supprime = supprimerObjetProche(caine)
+      if (supprime) pointsSysteme.gagner('supprimer')
+    } else if (creations.length >= MAX_OBJETS) {
+      const supprime = supprimerObjetProche(caine)
+      if (supprime) pointsSysteme.gagner('supprimer')
+    } else if (objetVuContact && Math.random() < 0.5) {
+      const x = p.objet.position.x
+      const z = p.objet.position.z
+      const resultat = poserCubeRouge(x, z)
+      if (resultat) {
+        creations.push(resultat.objet)
+        carte.noterCreation(x, z)
+        if (resultat.empile) {
+          pointsSysteme.gagner('empiler', resultat.hauteur)
+        } else {
+          pointsSysteme.gagner('poser')
+        }
+      }
+    } else {
+      const x = caine.position.x + Math.sin(caine.rotation.y) * 1.5
+      const z = caine.position.z + Math.cos(caine.rotation.y) * 1.5
+      const resultat = poserCubeRouge(x, z)
+      if (resultat) {
+        creations.push(resultat.objet)
+        carte.noterCreation(x, z)
+        if (resultat.empile) {
+          pointsSysteme.gagner('empiler', resultat.hauteur)
+        } else {
+          pointsSysteme.gagner('poser')
+        }
+      }
+    }
+    cerveau.etat = ETATS.OBSERVER
+    cerveau.tempsAttente = 0
+    cerveau.dureeAttente = Math.random() * 200 + 100
+
+  } else if (cerveau.etat === ETATS.OBSERVER) {
+    cerveau.tempsAttente++
+
+    if (cerveau.tempsAttente === Math.floor(cerveau.dureeAttente / 2)) {
+      const derniereAction = llm.dernieresActions[llm.dernieresActions.length - 1] || 'créé quelque chose'
+      demanderReflexion(derniereAction, llm.humeurActuelle)
+    }
+
+    if (cerveau.tempsAttente >= cerveau.dureeAttente) {
+      cerveau.etat = ETATS.CHOISIR
+    }
+  }
+}
+
+window.cerveau = cerveau
+
+// ============================================
+// LLM ET MÉMOIRE
+// ============================================
+const memoire = new MemoireEpisodique()
+window.memoire = memoire
+
+const llm = {
+  actif: false,
+  enCours: false,
+  penseeActuelle: "je m'éveille...",
+  humeurActuelle: 'curieux',
+  dernieresActions: [],
+  intervalleFrames: 180
+}
+window.llm = llm
+
+async function consulterLLM(caine) {
+  if (llm.enCours) return
+  llm.enCours = true
+
+  const p = cerveau.perception
+  const hauteurMaxPile = piles.length > 0 ? Math.max(...piles.map(p => p.objets.length)) : 0
+
+  const etatMonde = {
+    nbCreations: creations.length,
+    maxObjets: MAX_OBJETS,
+    nbPiles: piles.length,
+    hauteurMaxPile,
+    objetVu: p.objet ? p.objet.forme : 'rien',
+    zoneVision: p.zone,
+    distanceObjet: p.distance === Infinity ? '—' : p.distance.toFixed(1) + 'm',
+    etatActuel: cerveau.etat,
+    humeurActuelle: llm.humeurActuelle,
+    dernieresActions: llm.dernieresActions,
+    souvenirs: memoire.resumePourLLM()
+  }
+
+  const decision = await demanderDecision(etatMonde)
+  if (decision) {
+    llm.actif = true
+    llm.penseeActuelle = decision.pensee
+    llm.humeurActuelle = decision.humeur
+    llm.dernieresActions.push(decision.action)
+    if (llm.dernieresActions.length > 8) llm.dernieresActions.shift()
+    console.log('🧠 "' + decision.pensee + '" → ' + decision.action)
+
+    if (cerveau.etat === ETATS.CHOISIR || cerveau.etat === ETATS.OBSERVER) {
+      switch(decision.action) {
+        case 'explorer':
+          cerveau.etat = ETATS.CHOISIR
+          break
+        case 'creer':
+          cerveau.etat = ETATS.CREER
+          break
+        case 'empiler':
+          if (piles.length > 0) {
+            const pileCible = piles.reduce((max, p) => p.objets.length > max.objets.length ? p : max)
+            cerveau.destination = new BABYLON.Vector3(pileCible.x, 0, pileCible.z)
+            cerveau.destinationFinale = new BABYLON.Vector3(pileCible.x, 0, pileCible.z)
+            cerveau.etat = ETATS.MARCHER
+          } else {
+            cerveau.etat = ETATS.CHOISIR
+          }
+          break
+        case 'supprimer':
+          supprimerObjetProche(caine)
+          pointsSysteme.gagner('supprimer')
+          break
+        case 'examiner':
+          if (cerveau.perception.objet) {
+            cerveau.destination = new BABYLON.Vector3(
+              cerveau.perception.objet.position.x,
+              0,
+              cerveau.perception.objet.position.z
+            )
+            cerveau.destinationFinale = cerveau.destination.clone()
+            cerveau.etat = ETATS.MARCHER
+          }
+          break
+      }
+    }
+  }
+  llm.enCours = false
+}
+
+// ============================================
 // CÔNE DE VISION (visuel)
 // ============================================
 function creerConeVision() {
-  const angleOuverture = Math.PI / 3  // ±60°, cohérent avec calculerZoneVision
+  const angleOuverture = Math.PI / 3
   const segments = 20
 
-  // ── Zone NETTE (verte, proche) ──
   const positionsNette = [0, 0, 0]
   for (let i = 0; i <= segments; i++) {
     const a = -angleOuverture + (i / segments) * angleOuverture * 2
@@ -340,7 +696,6 @@ function creerConeVision() {
   matNette.backFaceCulling = false
   meshNette.material = matNette
 
-  // ── Zone FLOUE (jaune, lointaine, anneau de 4 à 10) ──
   const positionsFloue = []
   for (let i = 0; i <= segments; i++) {
     const a = -angleOuverture + (i / segments) * angleOuverture * 2
@@ -377,6 +732,79 @@ function creerConeVision() {
 }
 
 const coneVision = creerConeVision()
+
+// ============================================
+// CHARGEMENT DE CAINE
+// ============================================
+BABYLON.SceneLoader.ImportMesh('', './caine/', 'caine2.glb', scene, (meshes, particleSystems, skeletons) => {
+  const squelette = skeletons[0]
+
+  meshes[0].computeWorldMatrix(true)
+  const { min, max } = meshes[0].getHierarchyBoundingVectors()
+  console.log('Bas du modèle (Y) :', min.y)
+  console.log('Haut du modèle (Y) :', max.y)
+
+  const caine = new BABYLON.TransformNode('caine', scene)
+  meshes[0].setParent(caine)
+  meshes[0].position.y = -min.y
+  window.caine = caine
+  initialiserShop(scene, objetsCollidables)
+
+  const footL = squelette.bones.find(b => b.name === 'Foot_L').getTransformNode()
+  const footR = squelette.bones.find(b => b.name === 'Foot_R').getTransformNode()
+
+  const ikFootL = footL.parent
+  const ikFootR = footR.parent
+  const reposIkFootL = ikFootL.rotationQuaternion.clone()
+  const reposIkFootR = ikFootR.rotationQuaternion.clone()
+
+  const corps = new GestionnaireCorps()
+  corps.initialiser(squelette)
+  window.corps = corps
+
+  const motricite = new GestionnaireMotricite(corps, caine)
+  window.motricite = motricite
+
+  const etatTest = { modeMarche: 'avant' }
+  window.etatTest = etatTest
+
+  let t = 0
+  let compteurFrames = 0
+
+  scene.registerBeforeRender(() => {
+    t += 0.06
+    compteurFrames++
+
+    coneVision.position.x = caine.position.x
+    coneVision.position.z = caine.position.z
+    coneVision.rotation.y = caine.rotation.y
+
+    const plieFootL = Math.max(0, -Math.sin(t)) * 0.3
+    const plieFootR = Math.max(0, Math.sin(t)) * 0.3
+    ikFootL.rotationQuaternion = reposIkFootL.multiply(
+      BABYLON.Quaternion.RotationAxis(new BABYLON.Vector3(1, 0, 0), plieFootL)
+    )
+    ikFootR.rotationQuaternion = reposIkFootR.multiply(
+      BABYLON.Quaternion.RotationAxis(new BABYLON.Vector3(1, 0, 0), plieFootR)
+    )
+
+    appliquerCollisionSol(caine, footL, footR, 0)
+
+    if (compteurFrames % 30 === 0) {
+      mettreAJourMiniCarte(caine)
+      carte.noterVisite(caine.position.x, caine.position.z)
+    }
+
+    mettreAJourUI(caine)
+    mettreAJourCerveau(caine)
+
+    if (compteurFrames % llm.intervalleFrames === 0) {
+      consulterLLM(caine)
+    }
+
+    mettreAJourShop(caine)
+  })
+})
 
 engine.runRenderLoop(() => scene.render())
 window.addEventListener('resize', () => engine.resize())
