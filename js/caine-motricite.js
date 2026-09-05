@@ -1,137 +1,106 @@
 // ============================================
-// MOTRICITÉ DE CAINE — APPRENTISSAGE DE LA MARCHE
-// Choisit des actions motrices, mesure le résultat,
-// ajuste des scores pour apprendre à se déplacer
+// MOTRICITÉ DE CAINE — VERSION ARTICULATION
+// Le LLM choisit quelle articulation bouger
+// et dans quel sens — Caine apprend par essai
 // ============================================
 
 class GestionnaireMotricite {
-  constructor(corps, meshCaine) {
-    this.corps = corps           // instance de GestionnaireCorps
-    this.meshCaine = meshCaine   // le mesh racine, pour mesurer la position
+  constructor(corps, meshCaine, proprioception) {
+    this.corps = corps
+    this.meshCaine = meshCaine
+    this.proprio = proprioception
 
-    this.actions = ['lever_jambe_gauche', 'lever_jambe_droite', 'rester_immobile']
+    // Articulations disponibles et leurs deltas max
+    this.articulationsDisponibles = [
+      { os: 'Hip_L',      deltaMax: 0.15 },
+      { os: 'Hip_R',      deltaMax: 0.15 },
+      { os: 'Knee_L',     deltaMax: 0.12 },
+      { os: 'Knee_R',     deltaMax: 0.12 },
+      { os: 'Spine_01',   deltaMax: 0.08 },
+      { os: 'Upperarm_L', deltaMax: 0.15 },
+      { os: 'Upperarm_R', deltaMax: 0.15 },
+    ]
 
-    // Score appris pour chaque action — démarre neutre
-    this.scores = {
-      lever_jambe_gauche: 0,
-      lever_jambe_droite: 0,
-      rester_immobile: 0
-    }
+    // Mémoire des résultats par mouvement
+    this.apprentissage = {}
+    this.articulationsDisponibles.forEach(a => {
+      this.apprentissage[a.os] = { positif: 0, negatif: 0, essais: 0 }
+    })
 
-    this.actionActuelle = null
+    this.mouvementEnCours = null
     this.positionAvant = null
-    this.tauxExploration = 0.3  // 30% de hasard, 70% selon le score appris
-    this.marcheApprise = false  // deviendra true une fois l'objectif atteint
-    this.jambeLevee = null      // 'gauche' | 'droite' | null
+    this.anglesAvant = null
   }
 
-  // ── Choisit une action selon les scores appris ──
-  choisirAction() {
-    if (Math.random() < this.tauxExploration) {
-      // Exploration — action aléatoire
-      const idx = Math.floor(Math.random() * this.actions.length)
-      return this.actions[idx]
-    } else {
-      // Exploitation — la meilleure action connue
-      let meilleure = this.actions[0]
-      let meilleurScore = this.scores[meilleure]
-      for (const action of this.actions) {
-        if (this.scores[action] > meilleurScore) {
-          meilleure = action
-          meilleurScore = this.scores[action]
-        }
-      }
-      return meilleure
-    }
-  }
+  // ── Applique un mouvement demandé par le LLM ──
+ appliquerMouvement(nomOs, delta) {
+  if (!this.proprio) return false  // ← ajoute cette ligne
+  const limite = this.corps.limites[nomOs]
+  const node = this.corps.os[nomOs]
+  const repos = this.corps.repos[nomOs]
+  if (!limite || !node || !repos) return false
 
-  // ── Exécute l'action sur le corps (sans déplacement, test isolé) ──
-  executerAction(action) {
-    if (action === 'lever_jambe_gauche') {
-      this.corps.appliquerRotation('Hip_L', -0.6)
-      this.corps.appliquerRotation('Knee_L', 0.8)
-    } else if (action === 'lever_jambe_droite') {
-      this.corps.appliquerRotation('Hip_R', 0.6)
-      this.corps.appliquerRotation('Knee_R', 0.8)
-    } else if (action === 'rester_immobile') {
-      this.corps.revenirAuRepos()
-    }
-  }
+  const angleActuel = this.proprio.lireAngle(nomOs)
+  // ... reste inchangé
+    const nouvelAngle = Math.max(limite.min, Math.min(limite.max, angleActuel + delta))
 
-  // ── Exécute l'action et calcule le déplacement résultant ──
-  executerActionAvecDeplacement(action) {
-    const directionAvant = new BABYLON.Vector3(
-      Math.sin(this.meshCaine.rotation.y),
-      0,
-      Math.cos(this.meshCaine.rotation.y)
-    )
+    this.corps.appliquerRotation(nomOs, nouvelAngle)
 
-    if (action === 'lever_jambe_gauche' && this.jambeLevee !== 'gauche') {
-      this.corps.appliquerRotation('Hip_L', -0.6)
-      this.corps.appliquerRotation('Knee_L', 0.8)
-      this.jambeLevee = 'gauche'
-
-    } else if (action === 'lever_jambe_droite' && this.jambeLevee !== 'droite') {
-      this.corps.appliquerRotation('Hip_R', 0.6)
-      this.corps.appliquerRotation('Knee_R', 0.8)
-      this.jambeLevee = 'droite'
-
-    } else if (action === 'rester_immobile') {
-      // Si une jambe était levée, la redescente = la poussée
-      if (this.jambeLevee) {
-        const distancePoussee = 0.15  // avancée simple par pas, à ajuster
-        this.meshCaine.position.x += directionAvant.x * distancePoussee
-        this.meshCaine.position.z += directionAvant.z * distancePoussee
-      }
-      this.corps.revenirAuRepos()
-      this.jambeLevee = null
-    }
-  }
-
-  // ── Démarre un cycle de mesure de récompense ──
-  demarrerCycle() {
+    // Mémorise pour mesurer le résultat
+    this.mouvementEnCours = { os: nomOs, delta }
     this.positionAvant = this.meshCaine.position.clone()
+    this.anglesAvant = this.proprio.lireEtatCorps()
+
+    return true
   }
 
-  // ── Termine le cycle, calcule et applique la récompense ──
-  terminerCycle(actionInitiatrice) {
-    if (!this.positionAvant || !actionInitiatrice) return
+  // ── Mesure le résultat du mouvement précédent ──
+  mesurerResultat() {
+    if (!this.mouvementEnCours || !this.positionAvant) return null
 
-    const positionApres = this.meshCaine.position.clone()
-    const directionAvant = new BABYLON.Vector3(
-      Math.sin(this.meshCaine.rotation.y),
-      0,
-      Math.cos(this.meshCaine.rotation.y)
+    const posApres = this.meshCaine.position
+    const deplacement = new BABYLON.Vector3(
+      posApres.x - this.positionAvant.x,
+      posApres.y - this.positionAvant.y,
+      posApres.z - this.positionAvant.z
     )
 
-    const deplacement = positionApres.subtract(this.positionAvant)
-    const distanceUtile = BABYLON.Vector3.Dot(deplacement, directionAvant)
+    const distanceHorizontale = Math.sqrt(
+      deplacement.x * deplacement.x + deplacement.z * deplacement.z
+    )
+    const chute = deplacement.y < -0.05
 
-    // Ajuste le score de l'action qui a initié ce cycle
-    this.scores[actionInitiatrice] += distanceUtile * 10  // facteur d'amplification, à ajuster
+    const app = this.apprentissage[this.mouvementEnCours.os]
+    app.essais++
+    if (distanceHorizontale > 0.01 && !chute) {
+      app.positif++
+    } else if (chute) {
+      app.negatif++
+    }
 
+    const resultat = {
+      os: this.mouvementEnCours.os,
+      delta: this.mouvementEnCours.delta,
+      deplacement: parseFloat(distanceHorizontale.toFixed(3)),
+      chute,
+      stable: this.proprio.estStable
+    }
+
+    this.mouvementEnCours = null
     this.positionAvant = null
+    return resultat
   }
 
-  // ── Cycle complet : décide, exécute, récompense ──
-  executerCycleDeMarche() {
-    const action = this.choisirAction()
-
-    if (action === 'rester_immobile' && this.jambeLevee) {
-      // On termine le cycle en cours — la poussée a lieu ici
-      this.executerActionAvecDeplacement(action)
-      this.terminerCycle(this.actionActuelle)
-      this.actionActuelle = null
-
-    } else if (action === 'lever_jambe_gauche' || action === 'lever_jambe_droite') {
-      // On démarre un nouveau cycle
-      this.demarrerCycle()
-      this.executerActionAvecDeplacement(action)
-      this.actionActuelle = action
-
-    } else {
-      // rester_immobile sans jambe levée — rien à mesurer
-      this.executerActionAvecDeplacement(action)
-    }
+  // ── Résumé de l'apprentissage pour le LLM ──
+  resumeApprentissagePourLLM() {
+    const lignes = Object.entries(this.apprentissage)
+      .filter(([os, data]) => data.essais > 0)
+      .map(([os, data]) => {
+        const taux = data.essais > 0
+          ? Math.round((data.positif / data.essais) * 100)
+          : 0
+        return `- ${os} : ${data.essais} essais, ${taux}% utiles`
+      })
+    return lignes.length > 0 ? lignes.join('\n') : 'Aucun apprentissage encore.'
   }
 }

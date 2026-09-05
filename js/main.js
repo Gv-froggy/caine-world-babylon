@@ -17,10 +17,17 @@ const soleil = new BABYLON.DirectionalLight('soleil', new BABYLON.Vector3(-1, -2
 soleil.intensity = 0.8
 soleil.position = new BABYLON.Vector3(5, 10, 5)
 
-// ============================================
-// SOL EN DAMIER
-// ============================================
+// Tout le reste s'initialise une fois Havok prêt
+HavokPhysics().then(havokInstance => {
+  const physicsPlugin = new BABYLON.HavokPlugin(true, havokInstance)
+  scene.enablePhysics(new BABYLON.Vector3(0, -9.81, 0), physicsPlugin)
+  console.log('⚡ Physique Havok initialisée')
+
+  // ============================================
+  // SOL EN DAMIER
+  // ============================================
 const sol = BABYLON.MeshBuilder.CreateGround('sol', { width: 40, height: 40 }, scene)
+new BABYLON.PhysicsAggregate(sol, BABYLON.PhysicsShapeType.BOX, { mass: 0, friction: 0.8, restitution: 0.1 }, scene)
 
 const tailleCase = 8
 const texture = new BABYLON.DynamicTexture('damier', { width: tailleCase * 2, height: tailleCase * 2 }, scene)
@@ -102,7 +109,9 @@ function creerCubeRouge(x, y, z) {
   objet.material = mat
   objet.rayonCollision = 0.35
   objet.forme = forme
-  objetsCollidables.push(objet)
+   objetsCollidables.push(objet)
+  const agg = new BABYLON.PhysicsAggregate(objet, BABYLON.PhysicsShapeType.BOX, { mass: 1, friction: 0.7, restitution: 0.2 }, scene)
+  agg.body.disablePreStep = false
   return objet
 }
 
@@ -138,6 +147,13 @@ function calculerSommetPile(pile) {
 function poserCubeRouge(x, z) {
   const posX = x + (Math.random() - 0.5) * 0.3
   const posZ = z + (Math.random() - 0.5) * 0.3
+
+  // Vérifie que la position est dans les limites du sol
+  if (Math.abs(posX) > 19 || Math.abs(posZ) > 19) {
+    console.log('⚠️ Position hors sol, annulé')
+    return null
+  }
+
   const pileExistante = trouverPileProche(posX, posZ, 0.8)
 
   if (pileExistante && pileExistante.objets.length < HAUTEUR_MAX_PILE) {
@@ -156,37 +172,6 @@ function poserCubeRouge(x, z) {
   const objet = creerCubeRouge(posX, DEMI_HAUTEUR_CUBE, posZ)
   return { objet, empile: false, hauteur: 1 }
 }
-
-function supprimerObjetProche(caine) {
-  const aPortee = creations.filter(objet => {
-    if (objet.isShopDoor) return false
-    const dx = objet.position.x - caine.position.x
-    const dz = objet.position.z - caine.position.z
-    return Math.sqrt(dx * dx + dz * dz) <= 1.5
-  })
-
-  if (aPortee.length === 0) return false
-
-  const cible = aPortee[Math.floor(Math.random() * aPortee.length)]
-
-  for (const pile of piles) {
-    const idx = pile.objets.indexOf(cible)
-    if (idx > -1) { pile.objets.splice(idx, 1); break }
-  }
-  for (let i = piles.length - 1; i >= 0; i--) {
-    if (piles[i].objets.length === 0) piles.splice(i, 1)
-  }
-
-  const icCreations = creations.indexOf(cible)
-  if (icCreations > -1) creations.splice(icCreations, 1)
-  const icCollidables = objetsCollidables.indexOf(cible)
-  if (icCollidables > -1) objetsCollidables.splice(icCollidables, 1)
-
-  cible.dispose()
-  return true
-}
-
-window.poserCubeRouge = poserCubeRouge
 
 // ============================================
 // CARTE MENTALE
@@ -498,7 +483,7 @@ function mettreAJourCerveau(caine) {
   } else if (cerveau.etat === ETATS.MARCHER) {
     const resultat = deplacerVersDestination(caine, cerveau.destination, cerveau.vitesse)
     if (resultat.bloque) {
-      cerveau.tentativesContournement++
+     cerveau.tentativesContournement++
       if (cerveau.tentativesContournement >= cerveau.maxContournements) {
         cerveau.tentativesContournement = 0
         cerveau.etat = ETATS.CHOISIR
@@ -506,8 +491,9 @@ function mettreAJourCerveau(caine) {
         cerveau.destination = calculerContournement(caine, resultat.obstacle)
         cerveau.etat = ETATS.CONTOURNER
       }
-    } else if (resultat.arrive) {
-      cerveau.tentativesContournement = 0
+  } else if (resultat.arrive) {
+      cerveau.tentativesContournement = 0  // ← seulement ici, pas dans CONTOURNER
+      cerveau.tempsAttente = 0
       cerveau.etat = ETATS.CREER
     }
 
@@ -516,13 +502,17 @@ function mettreAJourCerveau(caine) {
     if (resultat.bloque) {
       cerveau.tentativesContournement++
       if (cerveau.tentativesContournement >= cerveau.maxContournements) {
+        carte.noterVisite(cerveau.destinationFinale.x, cerveau.destinationFinale.z)
+        carte.noterVisite(cerveau.destinationFinale.x, cerveau.destinationFinale.z)
+        carte.noterVisite(cerveau.destinationFinale.x, cerveau.destinationFinale.z)
         cerveau.tentativesContournement = 0
+        cerveau.tempsAttente = 0
         cerveau.etat = ETATS.CHOISIR
       } else {
         cerveau.destination = calculerContournement(caine, resultat.obstacle)
       }
     } else if (resultat.arrive) {
-      cerveau.tentativesContournement = 0
+      // NE PAS réinitialiser le compteur ici — juste reprendre la destination finale
       cerveau.destination = cerveau.destinationFinale
       cerveau.etat = ETATS.MARCHER
     }
@@ -618,7 +608,9 @@ async function consulterLLM(caine) {
     etatActuel: cerveau.etat,
     humeurActuelle: llm.humeurActuelle,
     dernieresActions: llm.dernieresActions,
-    souvenirs: memoire.resumePourLLM()
+    souvenirs: memoire.resumePourLLM(),
+    proprioception: proprio ? proprio.resumePourLLM() : '',
+    apprentissage: motricite ? motricite.resumeApprentissagePourLLM() : ''
   }
 
   const decision = await demanderDecision(etatMonde)
@@ -630,14 +622,15 @@ async function consulterLLM(caine) {
     if (llm.dernieresActions.length > 8) llm.dernieresActions.shift()
     console.log('🧠 "' + decision.pensee + '" → ' + decision.action)
 
+    if (decision.mouvement && motricite) {
+      const ok = motricite.appliquerMouvement(decision.mouvement.os, decision.mouvement.delta)
+      if (ok) console.log('🦿 ' + decision.mouvement.os + ' → ' + decision.mouvement.delta)
+    }
+
     if (cerveau.etat === ETATS.CHOISIR || cerveau.etat === ETATS.OBSERVER) {
       switch(decision.action) {
-        case 'explorer':
-          cerveau.etat = ETATS.CHOISIR
-          break
-        case 'creer':
-          cerveau.etat = ETATS.CREER
-          break
+        case 'explorer': cerveau.etat = ETATS.CHOISIR; break
+        case 'creer': cerveau.etat = ETATS.CREER; break
         case 'empiler':
           if (piles.length > 0) {
             const pileCible = piles.reduce((max, p) => p.objets.length > max.objets.length ? p : max)
@@ -668,7 +661,6 @@ async function consulterLLM(caine) {
   }
   llm.enCours = false
 }
-
 // ============================================
 // CÔNE DE VISION (visuel)
 // ============================================
@@ -762,8 +754,11 @@ BABYLON.SceneLoader.ImportMesh('', './caine/', 'caine2.glb', scene, (meshes, par
   corps.initialiser(squelette)
   window.corps = corps
 
-  const motricite = new GestionnaireMotricite(corps, caine)
-  window.motricite = motricite
+const proprio = new Proprioception(corps, caine)
+window.proprio = proprio
+
+const motricite = new GestionnaireMotricite(corps, caine, proprio)
+window.motricite = motricite
 
   const etatTest = { modeMarche: 'avant' }
   window.etatTest = etatTest
@@ -802,9 +797,11 @@ BABYLON.SceneLoader.ImportMesh('', './caine/', 'caine2.glb', scene, (meshes, par
       consulterLLM(caine)
     }
 
+    proprio.mettreAJour()
     mettreAJourShop(caine)
   })
-})
+}) // ferme ImportMesh
+}) // ferme HavokPhysics().then()
 
 engine.runRenderLoop(() => scene.render())
 window.addEventListener('resize', () => engine.resize())
