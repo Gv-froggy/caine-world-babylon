@@ -55,6 +55,8 @@ SITUATION ACTUELLE :
 - Mon humeur : ${humeurActuelle || 'neutre'}
 - Dernières actions : ${dernieresActions.slice(-3).join(' → ') || 'aucune'}
 - Je peux bouger une articulation en choisissant "bouger" avec un mouvement précis.
+- Mes jambes (Hip_L, Hip_R, Knee_L, Knee_R) sont faites pour me déplacer. Bouger mes hanches et genoux de façon coordonnée m'aidera un jour à marcher seul.
+- Pour faire un pas, je dois bouger Hip_L ET Knee_L ensemble, puis Hip_R ET Knee_R. C'est la coordination qui crée le mouvement.
 
 Que fais-je et à quoi est-ce que je pense ?`
 }
