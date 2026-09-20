@@ -510,22 +510,20 @@
     if (cerveau.etat === ETATS.CHOISIR) {
       choisirDestination()
 
-    } else if (cerveau.etat === ETATS.MARCHER) {
-      const resultat = deplacerVersDestination(caine, cerveau.destination, cerveau.vitesse)
-      if (resultat.bloque) {
-      cerveau.tentativesContournement++
-        if (cerveau.tentativesContournement >= cerveau.maxContournements) {
-          cerveau.tentativesContournement = 0
-          cerveau.etat = ETATS.CHOISIR
-        } else {
-          cerveau.destination = calculerContournement(caine, resultat.obstacle)
-          cerveau.etat = ETATS.CONTOURNER
-        }
-    } else if (resultat.arrive) {
-        cerveau.tentativesContournement = 0  // ← seulement ici, pas dans CONTOURNER
-        cerveau.tempsAttente = 0
-        cerveau.etat = ETATS.CREER
-      }
+   } else if (cerveau.etat === ETATS.MARCHER) {
+  // Glissement désactivé — Caine se déplace par ses propres articulations
+  const dx = cerveau.destination.x - caine.position.x
+  const dz = cerveau.destination.z - caine.position.z
+  const distanceRestante = Math.sqrt(dx * dx + dz * dz)
+  
+  // Oriente Caine vers sa destination
+  if (distanceRestante > 0.5) {
+    caine.rotation.y = Math.atan2(dx, dz)
+  } else {
+    cerveau.tentativesContournement = 0
+    cerveau.tempsAttente = 0
+    cerveau.etat = ETATS.CREER
+  }
 
     } else if (cerveau.etat === ETATS.CONTOURNER) {
       const resultat = deplacerVersDestination(caine, cerveau.destination, cerveau.vitesse)
@@ -621,12 +619,18 @@
   window.llm = llm
 
   async function consulterLLM(caine) {
-    if (llm.enCours) return
-    llm.enCours = true
+  if (llm.enCours) return
+  llm.enCours = true
 
-    const p = cerveau.perception
+  // Mesure le résultat du dernier mouvement avant de décider
+  if (motricite) {
+    motricite.mesurerResultat()
+  }
+
+  const p = cerveau.perception
     const hauteurMaxPile = piles.length > 0 ? Math.max(...piles.map(p => p.objets.length)) : 0
 
+    
     const etatMonde = {
       nbCreations: creations.length,
       maxObjets: MAX_OBJETS,
@@ -775,11 +779,16 @@
     const footL = squelette.bones.find(b => b.name === 'Foot_L').getTransformNode()
     const footR = squelette.bones.find(b => b.name === 'Foot_R').getTransformNode()
 
-    // Libère les contraintes IK des pieds
-    const ikFootL = footL.parent
-    const ikFootR = footR.parent
-    if (ikFootL) ikFootL.setEnabled(false)
-    if (ikFootR) ikFootR.setEnabled(false)
+// Désactive les IK directement par leur nom
+   const ikFootBoneL = squelette.bones.find(b => b.name === 'IK_Foot_L')
+    const ikFootBoneR = squelette.bones.find(b => b.name === 'IK_Foot_R')
+    const ikKneeBoneL = squelette.bones.find(b => b.name === 'IK_Knee_L')
+    const ikKneeBoneR = squelette.bones.find(b => b.name === 'IK_Knee_R')
+
+    if (ikFootBoneL?.getTransformNode()) ikFootBoneL.getTransformNode().setEnabled(false)
+    if (ikFootBoneR?.getTransformNode()) ikFootBoneR.getTransformNode().setEnabled(false)
+    if (ikKneeBoneL?.getTransformNode()) ikKneeBoneL.getTransformNode().setEnabled(false)
+    if (ikKneeBoneR?.getTransformNode()) ikKneeBoneR.getTransformNode().setEnabled(false)
 
     const corps = new GestionnaireCorps()
     corps.initialiser(squelette)

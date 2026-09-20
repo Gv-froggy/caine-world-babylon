@@ -21,9 +21,9 @@ Tu te souviens de ce que tu as vécu et cela influence tes pensées.
 Réponds UNIQUEMENT avec un objet JSON valide, rien d'autre :
 {
   "pensee": "une courte phrase intérieure (max 12 mots)",
-  "action": "explorer" | "empiler" | "creer" | "examiner" | "supprimer" | "bouger",
+  "action": "explorer" | "empiler" | "creer" | "examiner" | "supprimer" | "bouger" | "pas_gauche" | "pas_droit",,
   "humeur": "curieux" | "satisfait" | "indecis" | "contemplatif" | "agite",
-  "mouvement": { "os": "Hip_L" | "Hip_R" | "Knee_L" | "Knee_R" | "Spine_01" | "Upperarm_L" | "Upperarm_R", "delta": 0.1 } | null
+  "mouvement": { "os": "Pelvis" | "Spine_01" | "Spine_02" | "Head" | "Hip_L" | "Hip_R" | "Knee_L" | "Knee_R" | "Foot_L" | "Foot_R" | "Upperarm_L" | "Upperarm_R" | "Lowerarm_L" | "Lowerarm_R" | "Hand_L" | "Hand_R", "delta": 0.1 } | null
 }`
 
 function construirePromptSituation(etatMonde) {
@@ -55,8 +55,8 @@ SITUATION ACTUELLE :
 - Mon humeur : ${humeurActuelle || 'neutre'}
 - Dernières actions : ${dernieresActions.slice(-3).join(' → ') || 'aucune'}
 - Je peux bouger une articulation en choisissant "bouger" avec un mouvement précis.
-- Mes jambes (Hip_L, Hip_R, Knee_L, Knee_R) sont faites pour me déplacer. Bouger mes hanches et genoux de façon coordonnée m'aidera un jour à marcher seul.
-- Pour faire un pas, je dois bouger Hip_L ET Knee_L ensemble, puis Hip_R ET Knee_R. C'est la coordination qui crée le mouvement.
+- Mon seul objectif de mouvement : changer ma position dans l'espace. Si ma position change après un mouvement, ce mouvement était utile.
+- Je ne sais pas encore ce qu'est "marcher". Je cherche juste ce qui me fait bouger.
 
 Que fais-je et à quoi est-ce que je pense ?`
 }
@@ -66,10 +66,10 @@ function parserReponse(texte) {
     const match = texte.match(/\{[\s\S]*\}/)
     if (!match) throw new Error('Pas de JSON')
     const data = JSON.parse(match[0])
-    const actionsValides = ['explorer', 'empiler', 'creer', 'examiner', 'supprimer', 'bouger']
+    const actionsValides = ['explorer', 'empiler', 'creer', 'examiner', 'supprimer', 'bouger', 'pas_gauche', 'pas_droit']
     const humeursValides = ['curieux', 'satisfait', 'indecis', 'contemplatif', 'agite']
 
-    const osValides = ['Hip_L', 'Hip_R', 'Knee_L', 'Knee_R', 'Spine_01', 'Upperarm_L', 'Upperarm_R']
+    const osValides = ['Pelvis', 'Spine_01', 'Spine_02', 'Head', 'Hip_L', 'Hip_R', 'Knee_L', 'Knee_R', 'Foot_L', 'Foot_R', 'Upperarm_L', 'Upperarm_R', 'Lowerarm_L', 'Lowerarm_R', 'Hand_L', 'Hand_R']
     let mouvement = null
     if (data.mouvement && osValides.includes(data.mouvement.os) && typeof data.mouvement.delta === 'number') {
       mouvement = {

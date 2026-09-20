@@ -10,18 +10,28 @@ class GestionnaireCorps {
     this.repos = {}    // Quaternion de repos, sauvegardé une fois
 
     this.limites = {
-      Hip_L:      { axe: new BABYLON.Vector3(1, 0, 0), min: -0.3, max: 1.2 },
-      Hip_R:      { axe: new BABYLON.Vector3(1, 0, 0), min: -1.2, max: 0.3 },
-      Knee_L:     { axe: new BABYLON.Vector3(1, 0, 0), min: 0,    max: 1.5 },
-      Knee_R:     { axe: new BABYLON.Vector3(1, 0, 0), min: 0,    max: 1.5 },
-      Spine_01:   { axe: new BABYLON.Vector3(1, 0, 0), min: -0.3, max: 0.3 },
-      Spine_02:   { axe: new BABYLON.Vector3(1, 0, 0), min: -0.3, max: 0.3 },
-      Head:       { axe: new BABYLON.Vector3(1, 0, 0), min: -0.5, max: 0.5 },
-      Upperarm_L: { axe: new BABYLON.Vector3(1, 0, 0), min: -0.5, max: 2.0 },
-      Upperarm_R: { axe: new BABYLON.Vector3(1, 0, 0), min: -0.5, max: 2.0 },
-      Lowerarm_L: { axe: new BABYLON.Vector3(1, 0, 0), min: 0,    max: 2.2 },
-      Lowerarm_R: { axe: new BABYLON.Vector3(1, 0, 0), min: 0,    max: 2.2 },
-    }
+  // ── Tronc ──
+  Pelvis:       { axe: new BABYLON.Vector3(1, 0, 0), min: -0.3, max: 0.3 },
+  Spine_01:     { axe: new BABYLON.Vector3(1, 0, 0), min: -0.3, max: 0.3 },
+  Spine_02:     { axe: new BABYLON.Vector3(1, 0, 0), min: -0.3, max: 0.3 },
+  Head:         { axe: new BABYLON.Vector3(1, 0, 0), min: -0.5, max: 0.5 },
+
+  // ── Jambes ──
+  Hip_L:        { axe: new BABYLON.Vector3(1, 0, 0), min: -0.8, max: 0.8 },
+  Hip_R:        { axe: new BABYLON.Vector3(1, 0, 0), min: -0.8, max: 0.8 },
+  Knee_L:       { axe: new BABYLON.Vector3(1, 0, 0), min: 0,    max: 1.5 },
+  Knee_R:       { axe: new BABYLON.Vector3(1, 0, 0), min: 0,    max: 1.5 },
+  Foot_L:       { axe: new BABYLON.Vector3(1, 0, 0), min: -0.5, max: 0.5 },
+  Foot_R:       { axe: new BABYLON.Vector3(1, 0, 0), min: -0.5, max: 0.5 },
+
+  // ── Bras ──
+  Upperarm_L:   { axe: new BABYLON.Vector3(1, 0, 0), min: -0.5, max: 2.0 },
+  Upperarm_R:   { axe: new BABYLON.Vector3(1, 0, 0), min: -0.5, max: 2.0 },
+  Lowerarm_L:   { axe: new BABYLON.Vector3(1, 0, 0), min: 0,    max: 2.2 },
+  Lowerarm_R:   { axe: new BABYLON.Vector3(1, 0, 0), min: 0,    max: 2.2 },
+  Hand_L:       { axe: new BABYLON.Vector3(1, 0, 0), min: -0.5, max: 0.5 },
+  Hand_R:       { axe: new BABYLON.Vector3(1, 0, 0), min: -0.5, max: 0.5 },
+}
   }
 
   // ── Initialisation ───────────────────────────────
