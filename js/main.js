@@ -794,6 +794,57 @@
     corps.initialiser(squelette)
     window.corps = corps
 
+// Ragdoll Havok — corps physiques par bone
+const ragdollConfig = [
+  { bone: 'Pelvis',     width: 0.3, height: 0.2, depth: 0.2, mass: 5  },
+  { bone: 'Spine_01',  width: 0.25,height: 0.2, depth: 0.2, mass: 3  },
+  { bone: 'Spine_02',  width: 0.25,height: 0.2, depth: 0.2, mass: 3  },
+  { bone: 'Head',      width: 0.2, height: 0.2, depth: 0.2, mass: 2  },
+  { bone: 'Hip_L',     width: 0.15,height: 0.3, depth: 0.15,mass: 2  },
+  { bone: 'Hip_R',     width: 0.15,height: 0.3, depth: 0.15,mass: 2  },
+  { bone: 'Knee_L',    width: 0.12,height: 0.25,depth: 0.12,mass: 1.5},
+  { bone: 'Knee_R',    width: 0.12,height: 0.25,depth: 0.12,mass: 1.5},
+  { bone: 'Foot_L',    width: 0.15,height: 0.1, depth: 0.25,mass: 1  },
+  { bone: 'Foot_R',    width: 0.15,height: 0.1, depth: 0.25,mass: 1  },
+  { bone: 'Upperarm_L',width: 0.12,height: 0.25,depth: 0.12,mass: 1  },
+  { bone: 'Upperarm_R',width: 0.12,height: 0.25,depth: 0.12,mass: 1  },
+  { bone: 'Lowerarm_L',width: 0.1, height: 0.22,depth: 0.1, mass: 0.8},
+  { bone: 'Lowerarm_R',width: 0.1, height: 0.22,depth: 0.1, mass: 0.8},
+]
+
+const ragdollBoxes = {}
+
+for (const config of ragdollConfig) {
+  const bone = squelette.bones.find(b => b.name === config.bone)
+  if (!bone) continue
+
+  const boneNode = bone.getTransformNode()
+  if (!boneNode) continue
+
+  // Crée une boîte invisible attachée au bone
+  const box = BABYLON.MeshBuilder.CreateBox('ragdoll_' + config.bone, {
+    width: config.width,
+    height: config.height,
+    depth: config.depth
+  }, scene)
+
+  box.isVisible = false
+  box.setParent(boneNode)
+  box.position = BABYLON.Vector3.Zero()
+
+  const agg = new BABYLON.PhysicsAggregate(box, BABYLON.PhysicsShapeType.BOX, {
+    mass: config.mass,
+    friction: 0.7,
+    restitution: 0.1
+  }, scene)
+  agg.body.disablePreStep = false
+
+  ragdollBoxes[config.bone] = { box, agg }
+}
+
+window.ragdollBoxes = ragdollBoxes
+console.log('🦴 Ragdoll initialisé —', Object.keys(ragdollBoxes).length, 'segments')
+
   const proprio = new Proprioception(corps, caine)
   window.proprio = proprio
 
@@ -814,10 +865,14 @@
 
       //appliquerCollisionSol(caine, footL, footR, 0)
 
-      if (compteurFrames % 30 === 0) {
-        mettreAJourMiniCarte(caine)
-        carte.noterVisite(caine.position.x, caine.position.z)
-      }
+     if (compteurFrames % 30 === 0) {
+  mettreAJourMiniCarte(caine)
+  carte.noterVisite(caine.position.x, caine.position.z)
+}
+
+      if (compteurFrames % 30 === 15 && motricite) {
+  motricite.mesurerResultat()
+}
 
       mettreAJourUI(caine)
       mettreAJourCerveau(caine)

@@ -60,6 +60,12 @@ appliquerMouvement(nomOs, delta) {
   const repos = this.corps.repos[nomOs]
   if (!limite || !node || !repos) return false
 
+    // Enregistre la position AVANT tout mouvement
+  this.mouvementEnCours = { os: nomOs, delta }
+  this.positionAvant = this.meshCaine.position.clone()
+  this.anglesAvant = this.proprio.lireEtatCorps()
+
+  // Applique la rotation principale
   const angleActuel = this.proprio.lireAngle(nomOs)
   const nouvelAngle = Math.max(limite.min, Math.min(limite.max, angleActuel + delta))
   this.corps.appliquerRotation(nomOs, nouvelAngle)
@@ -73,9 +79,16 @@ appliquerMouvement(nomOs, delta) {
     }
   }
 
-  this.mouvementEnCours = { os: nomOs, delta }
-  this.positionAvant = this.meshCaine.position.clone()
-  this.anglesAvant = this.proprio.lireEtatCorps()
+  // Déplacement simulé APRÈS
+  const jambes = ['Hip_L', 'Hip_R', 'Knee_L', 'Knee_R', 'Foot_L', 'Foot_R']
+  if (jambes.includes(nomOs) && Math.abs(delta) > 0.01) {
+    const dir = new BABYLON.Vector3(
+      Math.sin(this.meshCaine.rotation.y),
+      0,
+      Math.cos(this.meshCaine.rotation.y)
+    )
+    this.meshCaine.position.addInPlace(dir.scale(delta * 0.3))
+  }
 
   return true
 }
@@ -105,7 +118,7 @@ mesurerResultat() {
   }
 
   // Enregistre dans la mémoire épisodique
-  if (distanceHorizontale > 0.02) {
+  if (distanceHorizontale > 0.0001) {
     memoire.ajouter('decouverte',
       `${this.mouvementEnCours.os} → position changée de ${distanceHorizontale.toFixed(3)}m`,
       3)
